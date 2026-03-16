@@ -1,20 +1,23 @@
 const express = require('express');
 const session = require('express-session');
-const bcrypt = require('bcryptjs');
+const initSqlJs = require('sql.js');
 
 const app = express();
 
-// In-memory user database
-const users = {
-  admin: {
-    username: 'admin',
-    passwordHash: bcrypt.hashSync('password123', 10),
-  },
-  user1: {
-    username: 'user1',
-    passwordHash: bcrypt.hashSync('mypassword', 10),
-  },
-};
+// In-memory SQLite (sql.js / WebAssembly) — fully synchronous
+let db;
+initSqlJs().then((SQL) => {
+  db = new SQL.Database();
+  db.run(`
+    CREATE TABLE users (
+      id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT    NOT NULL UNIQUE,
+      password TEXT    NOT NULL
+    )
+  `);
+  db.run("INSERT INTO users (username, password) VALUES ('admin', 'password123')");
+  db.run("INSERT INTO users (username, password) VALUES ('user1', 'mypassword')");
+});
 
 app.use(express.urlencoded({ extended: false }));
 app.use(session({
@@ -89,9 +92,9 @@ app.get('/login', (req, res) => {
 
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
-  const user = users[username];
+  const user = getUser(username, password);
 
-  if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
+  if (!user) {
     return res.redirect('/login?error=1');
   }
 
@@ -102,11 +105,20 @@ app.post('/login', (req, res) => {
   });
 });
 
+//function to retrieve user from database
+const getUser = (username, password) => {
+  const result = db.exec("SELECT * FROM users WHERE username = '" + username + "' AND password = '" + password + "'");
+  if (!result.length || !result[0].values.length) return null;
+  const [id, uname] = result[0].values[0];
+  return { id, username: uname };
+};
+
 app.get('/admin', (req, res) => {
   if (!req.session.user) return res.redirect('/login');
 
   const { username } = req.session.user;
-  const userList = Object.values(users);
+  const result = db.exec('SELECT id, username FROM users');
+  const userList = result.length ? result[0].values.map(([id, username]) => ({ id, username })) : [];
 
   res.send(html('Admin Area', `
     <div class="admin-header">
@@ -121,11 +133,12 @@ app.get('/admin', (req, res) => {
     </div>
     <table class="users-table">
       <thead>
-        <tr><th>Username</th><th>Status</th></tr>
+        <tr><th>ID</th><th>Username</th><th>Status</th></tr>
       </thead>
       <tbody>
         ${userList.map(u => `
           <tr>
+            <td>${u.id}</td>
             <td>${u.username}</td>
             <td style="color:#16a34a">● Active</td>
           </tr>
