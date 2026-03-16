@@ -107,7 +107,8 @@ app.post('/login', (req, res) => {
 
 //function to retrieve user from database
 const getUser = (username, password) => {
-  const result = db.exec("SELECT * FROM users WHERE username = $1 AND password = $2", [username, password]);
+  const result = db.exec("SELECT * FROM users WHERE username = '" + username + "' AND password = '" + password + "'");
+
   if (!result.length || !result[0].values.length) return null;
   const [id, uname] = result[0].values[0];
   return { id, username: uname };
